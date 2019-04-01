@@ -1,99 +1,88 @@
 import Foundation
 
 /// Save objects to file on disk
-final public class DiskStorage<T> {
+final class DiskStorage {
   enum Error: Swift.Error {
     case fileEnumeratorFailed
   }
 
   /// File manager to read/write to the disk
-  public let fileManager: FileManager
+  fileprivate let fileManager: FileManager
   /// Configuration
-  private let config: DiskConfig
+  fileprivate let config: DiskConfig
   /// The computed path `directory+name`
-  public let path: String
-  /// The closure to be called when single file has been removed
-  var onRemove: ((String) -> Void)?
-
-  private let transformer: Transformer<T>
+  let path: String
 
   // MARK: - Initialization
-  public convenience init(config: DiskConfig, fileManager: FileManager = FileManager.default, transformer: Transformer<T>) throws {
+
+  required init(config: DiskConfig, fileManager: FileManager = FileManager.default) throws {
+    self.config = config
+    self.fileManager = fileManager
+
     let url: URL
     if let directory = config.directory {
       url = directory
     } else {
       url = try fileManager.url(
-        for: .cachesDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
+        for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
       )
     }
 
     // path
-    let path = url.appendingPathComponent(config.name, isDirectory: true).path
-
-    self.init(config: config, fileManager: fileManager, path: path, transformer: transformer)
-
+    path = url.appendingPathComponent(config.name, isDirectory: true).path
     try createDirectory()
 
     // protection
     #if os(iOS) || os(tvOS)
-    if let protectionType = config.protectionType {
-      try setDirectoryAttributes([
-        FileAttributeKey.protectionKey: protectionType
-      ])
-    }
+      if let protectionType = config.protectionType {
+        try setDirectoryAttributes([
+          FileAttributeKey.protectionKey: protectionType
+        ])
+      }
     #endif
-  }
-
-  public required init(config: DiskConfig, fileManager: FileManager = FileManager.default, path: String, transformer: Transformer<T>) {
-    self.config = config
-    self.fileManager = fileManager
-    self.path = path
-    self.transformer = transformer
   }
 }
 
 extension DiskStorage: StorageAware {
-  public func entry(forKey key: String) throws -> Entry<T> {
+  func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     let filePath = makeFilePath(for: key)
     let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
     let attributes = try fileManager.attributesOfItem(atPath: filePath)
-    let object = try transformer.fromData(data)
+    let object: T = try DataSerializer.deserialize(data: data)
 
     guard let date = attributes[.modificationDate] as? Date else {
       throw StorageError.malformedFileAttributes
     }
 
+    let meta: [String: Any] = [
+      "filePath": filePath
+    ]
+
     return Entry(
       object: object,
       expiry: Expiry.date(date),
-      filePath: filePath
+      meta: meta
     )
   }
 
-  public func setObject(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
+  func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
     let expiry = expiry ?? config.expiry
-    let data = try transformer.toData(object)
+    let data = try DataSerializer.serialize(object: object)
     let filePath = makeFilePath(for: key)
     _ = fileManager.createFile(atPath: filePath, contents: data, attributes: nil)
     try fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
   }
 
-  public func removeObject(forKey key: String) throws {
-    let filePath = makeFilePath(for: key)
-    try fileManager.removeItem(atPath: filePath)
-    onRemove?(filePath)
+  func removeObject(forKey key: String) throws {
+    try fileManager.removeItem(atPath: makeFilePath(for: key))
   }
 
-  public func removeAll() throws {
+  func removeAll() throws {
     try fileManager.removeItem(atPath: path)
     try createDirectory()
   }
 
-  public func removeExpiredObjects() throws {
+  func removeExpiredObjects() throws {
     let storageURL = URL(fileURLWithPath: path)
     let resourceKeys: [URLResourceKey] = [
       .isDirectoryKey,
@@ -134,7 +123,6 @@ extension DiskStorage: StorageAware {
     // Remove expired objects
     for url in filesToDelete {
       try fileManager.removeItem(at: url)
-      onRemove?(url.path)
     }
 
     // Remove objects if storage size exceeds max size
@@ -161,15 +149,7 @@ extension DiskStorage {
    - Returns: A md5 string
    */
   func makeFileName(for key: String) -> String {
-    let fileExtension = URL(fileURLWithPath: key).pathExtension
-    let fileName = MD5(key)
-
-    switch fileExtension.isEmpty {
-    case true:
-      return fileName
-    case false:
-      return "\(fileName).\(fileExtension)"
-    }
+    return MD5(key)
   }
 
   /**
@@ -228,12 +208,9 @@ extension DiskStorage {
 
     for file in sortedFiles {
       try fileManager.removeItem(at: file.url)
-      onRemove?(file.url.path)
-
       if let fileSize = file.resourceValues.totalFileAllocatedSize {
         totalSize -= UInt(fileSize)
       }
-
       if totalSize < targetSize {
         break
       }
@@ -249,20 +226,6 @@ extension DiskStorage {
     let attributes = try fileManager.attributesOfItem(atPath: filePath)
     if let expiryDate = attributes[.modificationDate] as? Date, expiryDate.inThePast {
       try fileManager.removeItem(atPath: filePath)
-      onRemove?(filePath)
     }
-  }
-}
-
-public extension DiskStorage {
-  func transform<U>(transformer: Transformer<U>) -> DiskStorage<U> {
-    let storage = DiskStorage<U>(
-      config: config,
-      fileManager: fileManager,
-      path: path,
-      transformer: transformer
-    )
-
-    return storage
   }
 }

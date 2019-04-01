@@ -27,54 +27,55 @@ struct Helper {
 
 let diskConfig = DiskConfig(name: "Mix")
 
-let dataStorage = try! Storage(
-  diskConfig: diskConfig,
-  memoryConfig: MemoryConfig(),
-  transformer: TransformerFactory.forData()
-)
-
-let stringStorage = dataStorage.transformCodable(ofType: String.self)
-let imageStorage = dataStorage.transformImage()
-let dateStorage = dataStorage.transformCodable(ofType: Date.self)
+let storage = try! Storage(diskConfig: diskConfig)
 
 // We already have Codable conformances for:
 // String, UIImage, NSData and NSDate (just for fun =)
 
 let string = "This is a string"
 let image = Helper.image()
+let imageWrapper = ImageWrapper(image: image)
+let newImage = imageWrapper.image
 let data = Helper.data(length: 64)
 let date = Date(timeInterval: 100000, since: Date())
 
 // Add objects to the cache
-try stringStorage.setObject(string, forKey: "string")
-try imageStorage.setObject(image, forKey: "image")
-try dataStorage.setObject(data, forKey: "data")
-try dateStorage.setObject(date, forKey: "date")
+try storage.setObject(string, forKey: "string")
+try storage.setObject(imageWrapper, forKey: "imageWrapper")
+try storage.setObject(data, forKey: "data")
+try storage.setObject(date, forKey: "date")
 //
 //// Get objects from the cache
-let cachedString = try? stringStorage.object(forKey: "string")
-print(cachedString as Any)
+let cachedString = try? storage.object(ofType: String.self, forKey: "string")
+print(cachedString)
 
-imageStorage.async.object(forKey: "image") { result in
-    if case .value(let image) = result {
+storage.async.object(ofType: ImageWrapper.self, forKey: "imageWrapper") { result in
+    if case .value(let imageWrapper) = result {
+        let image = imageWrapper.image
         print(image)
     }
 }
 
-dataStorage.async.object(forKey: "data") { result in
+storage.async.object(ofType: Data.self, forKey: "data") { result in
     if case .value(let data) = result {
         print(data)
     }
 }
 
-dateStorage.async.object(forKey: "date") { result in
+storage.async.object(ofType: Data.self, forKey: "data") { result in
+    if case .value(let data) = result {
+        print(data)
+    }
+}
+
+storage.async.object(ofType: Date.self, forKey: "date") { result in
     if case .value(let date) = result {
         print(date)
     }
 }
 
 // Clean the cache
-dataStorage.async.removeAll(completion: { (result) in
+try storage.async.removeAll(completion: { (result) in
     if case .value = result {
         print("Cache cleaned")
     }

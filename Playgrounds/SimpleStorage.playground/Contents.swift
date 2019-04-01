@@ -16,11 +16,7 @@ struct User: Codable {
 let diskConfig = DiskConfig(name: "UserCache")
 let memoryConfig = MemoryConfig(expiry: .never, countLimit: 10, totalCostLimit: 10)
 
-let storage = try! Storage(
-  diskConfig: diskConfig,
-  memoryConfig: memoryConfig,
-  transformer: TransformerFactory.forCodable(ofType: User.self)
-)
+let storage = try! Storage(diskConfig: diskConfig, memoryConfig: memoryConfig)
 
 let user = User(id: 1, firstName: "John", lastName: "Snow")
 let key = "\(user.id)"
@@ -29,7 +25,7 @@ let key = "\(user.id)"
 try storage.setObject(user, forKey: key)
 
 // Fetch object from the cache
-storage.async.object(forKey: key) { result in
+storage.async.object(ofType: User.self, forKey: key) { result in
     switch result {
     case .value(let user):
         print(user.name)
@@ -42,7 +38,7 @@ storage.async.object(forKey: key) { result in
 try storage.removeObject(forKey: key)
 
 // Try to fetch removed object from the cache
-storage.async.object(forKey: key) { result in
+storage.async.object(ofType: User.self, forKey: key) { result in
     switch result {
     case .value(let user):
         print(user.name)

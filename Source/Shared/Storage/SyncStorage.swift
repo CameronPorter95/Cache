@@ -3,21 +3,21 @@ import Dispatch
 
 /// Manipulate storage in a "all sync" manner.
 /// Block the current queue until the operation completes.
-public class SyncStorage<T> {
-  public let innerStorage: HybridStorage<T>
-  public let serialQueue: DispatchQueue
+public class SyncStorage {
+  fileprivate let internalStorage: StorageAware
+  fileprivate let serialQueue: DispatchQueue
 
-  public init(storage: HybridStorage<T>, serialQueue: DispatchQueue) {
-    self.innerStorage = storage
+  init(storage: StorageAware, serialQueue: DispatchQueue) {
+    self.internalStorage = storage
     self.serialQueue = serialQueue
   }
 }
 
 extension SyncStorage: StorageAware {
-  public func entry(forKey key: String) throws -> Entry<T> {
+  public func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     var entry: Entry<T>!
     try serialQueue.sync {
-      entry = try innerStorage.entry(forKey: key)
+      entry = try internalStorage.entry(ofType: type, forKey: key)
     }
 
     return entry
@@ -25,36 +25,26 @@ extension SyncStorage: StorageAware {
 
   public func removeObject(forKey key: String) throws {
     try serialQueue.sync {
-      try self.innerStorage.removeObject(forKey: key)
+      try self.internalStorage.removeObject(forKey: key)
     }
   }
 
-  public func setObject(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
+  public func setObject<T: Codable>(_ object: T, forKey key: String,
+                                    expiry: Expiry? = nil) throws {
     try serialQueue.sync {
-      try innerStorage.setObject(object, forKey: key, expiry: expiry)
+      try internalStorage.setObject(object, forKey: key, expiry: expiry)
     }
   }
 
   public func removeAll() throws {
     try serialQueue.sync {
-      try innerStorage.removeAll()
+      try internalStorage.removeAll()
     }
   }
 
   public func removeExpiredObjects() throws {
     try serialQueue.sync {
-      try innerStorage.removeExpiredObjects()
+      try internalStorage.removeExpiredObjects()
     }
-  }
-}
-
-public extension SyncStorage {
-  func transform<U>(transformer: Transformer<U>) -> SyncStorage<U> {
-    let storage = SyncStorage<U>(
-      storage: innerStorage.transform(transformer: transformer),
-      serialQueue: serialQueue
-    )
-
-    return storage
   }
 }

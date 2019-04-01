@@ -13,6 +13,4 @@ public enum StorageError: Error {
   case encodingFailed
   /// The storage has been deallocated
   case deallocated
-  /// Fail to perform transformation to or from Data
-  case transformerFail
 }
